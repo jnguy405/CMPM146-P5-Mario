@@ -8,8 +8,72 @@ import shutil
 import time
 import math
 
+# =============================================================================
+# CORE IMPLEMENTATION ADDITIONS (P5 Mario)
+# =============================================================================
+# All modified spots (exactly 4). Each has "Changes made:" and "What it does:".
+# Ctrl + F to find the changes made.
+#   1. Config + mutation weights
+#   2. Individual_Grid.mutate()
+#   3. Individual_Grid.generate_children()
+#   4. _select_parent() + generate_successors()
+# =============================================================================
+# Locations and behavior:
+#
+# 1. Config + Mutation Weights
+#    - Constants control mutation rate, crossover mode, elitism, and selection.
+#    - Why: So we can switch strategies (e.g. roulette vs tournament) and tune
+#      the GA without editing logic. Weighted tiles bias mutation toward empty
+#      space and coins instead of uniform random, which keeps levels playable.
+#
+# 2. Individual_Grid.mutate()
+#    - Per-gene mutation: each interior tile (non-floor, non-border) is replaced
+#      with probability MUTATION_RATE_GENE using the weighted tile list.
+#    - Why: Per-gene rate gives fine-grained exploration; skipping floor/border
+#      keeps the level structure valid (mario start, flag, solid floor).
+#
+# 3. Individual_Grid.generate_children()
+#    - Crossover: uniform (50/50 per cell), single-point (one cut in row-major),
+#      or multi-point (alternating segments). Then mutate the child genome.
+#    - Why: Crossover mixes parent levels; uniform is unbiased, single-point
+#      preserves contiguous regions, multi-point allows more mixing. Mutation
+#      after crossover adds exploration.
+#
+# 4. _select_parent() and generate_successors()
+#    - Selection: roulette (fitness-proportionate), tournament (best of K), or
+#      random. Roulette uses shifted fitness so negative fitnesses become valid
+#      weights. generate_successors keeps top ELITE_COUNT, then fills the rest
+#      by selecting two parents and adding children until population size is met.
+#    - Why: Elitism prevents losing the best solution. Tournament is robust to
+#      fitness scale; roulette emphasizes better individuals; random is a
+#      baseline for diversity.
+# =============================================================================
+
 width = 200
 height = 16
+
+# --- CORE IMPLEMENTATION (1): GA configuration ---
+
+# ===========================================================================================
+# Changes made: Added constants for mutation rate, crossover mode/points, elite count,
+#   selection strategy, and tournament size; added weighted tile list for mutation.
+
+# What it does: Central place to tune the GA. Mutation weights favor "-" and "o" over
+#   pipes/enemies so levels stay playable; other constants choose selection and crossover.
+# ===========================================================================================
+
+MUTATION_RATE_GENE = 0.02           # Per-gene mutation probability (per tile)
+CROSSOVER_MODE = "uniform"          # "uniform" | "single_point" | "multi_point"
+CROSSOVER_POINTS = 3                # Number of cut points for multi-point crossover
+ELITE_COUNT = 48                    # Top-k individuals carried unchanged (e.g. 10% of 480)
+SELECTION_STRATEGY = "tournament"   # "roulette" | "tournament" | "random"
+TOURNAMENT_SIZE = 5                 # K for tournament selection (pick best of K random)
+
+# Tile weights for mutation (higher = more likely). Ensures more empty/coins, fewer pipes/enemies.
+_mutation_tile_weights = [
+    ("-", 12), ("X", 4), ("?", 2), ("M", 1), ("B", 2), ("o", 6), ("|", 1), ("T", 1), ("E", 2)
+]
+_mutation_tiles, _mutation_weights = zip(*_mutation_tile_weights)
 
 options = [
     "-",  # an empty space
@@ -21,14 +85,14 @@ options = [
     "|",  # a pipe segment
     "T",  # a pipe top
     "E",  # an enemy
-    #"f",  # a flag, do not generate
-    #"v",  # a flagpole, do not generate
+    #"f", # a flag, do not generate
+    #"v", # a flagpole, do not generate
     #"m"  # mario's start position, do not generate
 ]
 
+#
 # The level as a grid of tiles
-
-
+#
 class Individual_Grid(object):
     __slots__ = ["genome", "_fitness"]
 
@@ -62,32 +126,71 @@ class Individual_Grid(object):
             self.calculate_fitness()
         return self._fitness
 
-    # Mutate a genome into a new genome.  Note that this is a _genome_, not an individual!
-    def mutate(self, genome):
-        # STUDENT implement a mutation operator, also consider not mutating this individual
-        # STUDENT also consider weighting the different tile types so it's not uniformly random
-        # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
+    # --- CORE IMPLEMENTATION (2): Mutation ---
 
-        left = 1
-        right = width - 1
-        for y in range(height):
+    # ===========================================================================================
+    # Mutate a genome into a new genome.  Note that this is a _genome_, not an individual!
+    # ===========================================================================================
+    # Changes made: Replaced empty loop with per-gene mutation; use MUTATION_RATE_GENE and
+    #   weighted tile list (_mutation_tiles / _mutation_weights); only touch interior, non-floor cells.
+
+    # What it does: For each mutable tile (rows 0..height-2, cols 1..width-2), with probability
+    #   MUTATION_RATE_GENE replaces it with a new tile chosen by weight (more empty/coins, fewer pipes).
+    # ===========================================================================================
+
+    def mutate(self, genome):
+        left, right = 1, width - 1
+        for y in range(height - 1):  # skip last row (floor)
             for x in range(left, right):
-                pass
+                if random.random() < MUTATION_RATE_GENE:
+                    genome[y][x] = random.choices(_mutation_tiles, weights=_mutation_weights, k=1)[0]
         return genome
 
-    # Create zero or more children from self and other
+    # --- CORE IMPLEMENTATION (3): Crossover ---
+
+    # ===========================================================================================
+    # Create zero or more children from self and other (crossover + mutation).
+    # ===========================================================================================
+    # Changes made: Replaced empty crossover with three modes: uniform (50/50 per cell),
+    #   single-point (one cut in row-major order), multi-point (alternating segments); then call mutate.
+
+    # What it does: Builds one child genome by combining self and other per CROSSOVER_MODE, mutates it,
+    #   and returns a single Individual_Grid. Floor row and first/last columns are never crossed.
+    # ===========================================================================================
+
     def generate_children(self, other):
-        new_genome = copy.deepcopy(self.genome)
-        # Leaving first and last columns alone...
-        # do crossover with other
-        left = 1
-        right = width - 1
-        for y in range(height):
-            for x in range(left, right):
-                # STUDENT Which one should you take?  Self, or other?  Why?
-                # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
-                pass
-        # do mutation; note we're returning a one-element tuple here
+        left, right = 1, width - 1
+        rows_used = height - 1  # exclude floor row for crossover
+        total_cells = rows_used * (right - left)
+
+        if CROSSOVER_MODE == "uniform":
+            new_genome = copy.deepcopy(self.genome)
+            for y in range(rows_used):
+                for x in range(left, right):
+                    if random.random() < 0.5:
+                        new_genome[y][x] = other.genome[y][x]
+        elif CROSSOVER_MODE == "single_point":
+            cut = random.randint(0, total_cells) if total_cells > 0 else 0
+            new_genome = copy.deepcopy(self.genome)
+            idx = 0
+            for y in range(rows_used):
+                for x in range(left, right):
+                    if idx >= cut:
+                        new_genome[y][x] = other.genome[y][x]
+                    idx += 1
+        else:  # multi_point
+            new_genome = copy.deepcopy(self.genome)
+            n_pts = min(CROSSOVER_POINTS, max(0, total_cells - 1))
+            if n_pts > 0 and total_cells > 1:
+                cuts = sorted([0] + random.sample(range(1, total_cells), n_pts) + [total_cells])
+                for seg_i in range(len(cuts) - 1):
+                    use_other = (seg_i % 2) == 1
+                    for idx in range(cuts[seg_i], cuts[seg_i + 1]):
+                        y = idx // (right - left)
+                        x = left + idx % (right - left)
+                        if use_other:
+                            new_genome[y][x] = other.genome[y][x]
+        self.mutate(new_genome)
         return (Individual_Grid(new_genome),)
 
     # Turn the genome into a level string (easy for this genome)
@@ -342,12 +445,56 @@ class Individual_DE(object):
 
 Individual = Individual_Grid
 
+# --- CORE IMPLEMENTATION (4): Selection + generate_successors ---
+
+# ===========================================================================================
+# Changes made: Added _select_parent() and full generate_successors(). Selection supports
+#   roulette (shifted fitness so negative values work), tournament (best of K), and random.
+#   generate_successors keeps top ELITE_COUNT, then fills rest by selecting two parents and
+#   adding children until population size is reached.
+
+# What it does: _select_parent returns one individual for breeding. generate_successors
+#   returns the next generation: elite individuals plus offspring from selected parent pairs.
+# ===========================================================================================
+
+def _select_parent(population, strategy=SELECTION_STRATEGY):
+    """Select one individual: roulette (fitness-proportionate), tournament (best of K), or random."""
+    if not population:
+        return None
+    if strategy == "random":
+        return random.choice(population)
+    if strategy == "tournament":
+        k = min(TOURNAMENT_SIZE, len(population))
+        pool = random.sample(population, k)
+        return max(pool, key=Individual.fitness)
+    # roulette: fitness-proportionate (shift fitnesses to be non-negative)
+    fitnesses = [Individual.fitness(p) for p in population]
+    min_f = min(fitnesses)
+    weights = [f - min_f + 1e-6 for f in fitnesses]
+    total = sum(weights)
+    if total <= 0:
+        return random.choice(population)
+    probs = [w / total for w in weights]
+    return random.choices(population, weights=probs, k=1)[0]
+
 
 def generate_successors(population):
-    results = []
-    # STUDENT Design and implement this
-    # Hint: Call generate_children() on some individuals and fill up results.
-    return results
+    """Build next generation: elitism (top ELITE_COUNT) + offspring via selection and crossover."""
+    pop_limit = len(population)
+    # Sort best first for elitism
+    sorted_pop = sorted(population, key=Individual.fitness, reverse=True)
+    results = list(sorted_pop[:ELITE_COUNT])
+    need = pop_limit - len(results)
+    for _ in range(need):
+        p1 = _select_parent(population)
+        p2 = _select_parent(population)
+        if p1 is None or p2 is None:
+            break
+        children = p1.generate_children(p2)
+        results.extend(children)
+        if len(results) >= pop_limit:
+            break
+    return results[:pop_limit]
 
 
 def ga():

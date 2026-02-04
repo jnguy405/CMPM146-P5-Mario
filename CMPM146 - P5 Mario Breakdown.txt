@@ -1,0 +1,116 @@
+CMPM146 - P5 Mario Breakdown
+
+Project Setup Requirements
+-----------------------------
+
+1. Required: Python, numpy, scipy, and Unity3D
+2. Open the Player project in Unity, load GameWorldScene, and press Play to test levels.
+
+Core Implementation (ga.py)
+----------------------------------------
+Implement generate_successors with at least two selection strategies:
+
+1. Roulette-wheel (fitness-proportionate)
+2. Tournament (pick the best of a random subset)
+3. Elitist (carry top-k individuals unchanged)
+4. Random (baseline diversity)
+ 
+Implement generate_children (crossover) for the Grid encoding:
+
+1. Uniform crossover
+2. Single-point crossover
+3. Multi-point crossover
+4. Implement mutate for the Grid encoding:
+5. Apply a mutation rate per gene or per individual
+
+Fitness and Metrics
+--------------------------------------------------
+Understand the fitness metrics in metrics.py:
+
+1. length
+2. negativeSpace
+3. pathPercentage
+4. emptyPercentage
+5. decorationPercentage
+6. leniency
+7. meaningfulJumps
+8. jumps
+9. meaningfulJumpVariance
+10. jumpVariance
+11. linearity
+12. solvability
+- (Optional) Refine fitness calculation in ga.py to suit your preferences. This involves assigning weights to the metrics.
+
+Level Testing and Evaluation
+--------------------------------
+- Test generated levels in Unity's GameWorldScene.
+- Analyze the generated levels based on playability and design.
+- Iterate on fitness function, weights, and GA parameters to achieve desired level characteristics.
+- Generate and save one beatable level file (lastName1_lastName2.txt).
+
+Write-Up
+---------------------------
+Describe changes made to:
+
+- Selection (in generate_successors)
+- Fitness (how you combined the metrics)
+- Crossover (in generate_children)
+- Mutation (in mutate)
+
+Describe two favorite levels:
+
+- Why they're appealing
+- Generations/time taken to generate them
+- Explain how the metrics output correlates to the level design and playability you like.
+
+Submission
+-------------
+1. Modified ga.py (and metrics.py if changed)
+2. One beatable level file (lastName1_.txt)
+3. Write-up
+
+
+Individual_DE: What We Can Change (based on ga.py Grid implementation)
+------------------------------------------------------------------------
+Design Element encoding (Individual = Individual_DE)
+
+MUTATION (Individual_DE.mutate)
+--------------------------------------
+- Currently: 10% chance per genome to mutate one random design element; by type, perturb
+  x/y/w/h or flip a boolean. "2_enemy" is not mutated (pass).
+- Changes to consider:
+  - Add a config constant (e.g. DE_MUTATION_RATE = 0.1) instead of hardcoding 0.1.
+  - Per-element mutation: with some probability, mutate each DE in the list (like
+    per-gene in Grid), or keep current “mutate one random DE” but make rate configurable.
+  - Implement mutation for "2_enemy" (e.g. offset x with offset_by_upto) so enemies
+    can move; otherwise new_de is never set and the same DE is re-pushed.
+  - Add constraints (e.g. keep pipe height/position valid, avoid overlapping DEs) as
+    suggested by STUDENT comments.
+
+CROSSOVER (Individual_DE.generate_children)
+----------------------------------------------
+- Currently: Single-point style on the list of DEs—pick pa in self, pb in other;
+  child1 = self[:pa] + other[pb:], child2 = other[:pb] + self[pa:], then mutate both.
+  Returns two children (Grid returns one).
+- Changes to consider:
+  - Make crossover mode configurable (e.g. same CROSSOVER_MODE or a DE-specific one):
+    - Uniform: merge the two lists (e.g. by interleaving or by position) and at each
+      “slot” choose with 0.5 probability from parent A or B (need a rule when list
+      lengths differ).
+    - Multi-point: treat concatenated or merged list as a sequence, pick multiple
+      cut points, alternate segments from self and other (then re-heapify).
+  - Document in write-up: “Crossover splits each parent’s list at a random index and
+    recombines the segments to form two children.”
+
+CONFIG
+--------
+- Add DE-specific constants at top if desired (e.g. DE_MUTATION_RATE, DE_CROSSOVER_MODE)
+  so both encodings can be tuned without editing class code.
+
+OTHER
+------------------
+- empty_individual / random_individual (DE): enhance e.g. min/max element count, type
+  distribution, or seed with a few guaranteed elements (platforms, holes).
+- calculate_fitness (DE): same as Grid—optionally refine coefficients and penalties
+  (e.g. stairs penalty already present).
+- to_level: no change needed; it already applies DEs in a deterministic order.
