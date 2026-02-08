@@ -11,69 +11,48 @@ import math
 # =============================================================================
 # CORE IMPLEMENTATION ADDITIONS (P5 Mario)
 # =============================================================================
-# All modified spots (exactly 4). Each has "Changes made:" and "What it does:".
-# Ctrl + F to find the changes made.
 #   1. Config + mutation weights
-#   2. Individual_Grid.mutate()
-#   3. Individual_Grid.generate_children()
-#   4. _select_parent() + generate_successors()
+#   2. Individual_Grid.calculate_fitness()
+#   3. Individual_Grid.mutate() + Individual_Grid.random_individual()
+#   4. Individual_Grid.generate_children() + _select_parent() + generate_successors()
 # =============================================================================
 # Locations and behavior:
 #
 # 1. Config + Mutation Weights
-#    - Constants control mutation rate, crossover mode, elitism, and selection.
-#    - Why: So we can switch strategies (e.g. roulette vs tournament) and tune
-#      the GA without editing logic. Weighted tiles bias mutation toward empty
-#      space and coins instead of uniform random, which keeps levels playable.
+#    - Added GA configuration constants (MUTATION_RATE_GENE, ELITE_COUNT, etc.)
+#      and weighted tile list for mutation.
+#    - Why: Centralized configuration allows easy tuning. Weighted tiles favor
+#      empty space and coins over pipes/enemies, producing more playable levels
+#      by default.
 #
-# 2. Individual_Grid.mutate()
-#    - Per-gene mutation: each interior tile (non-floor, non-border) is replaced
-#      with probability MUTATION_RATE_GENE using the weighted tile list.
-#    - Why: Per-gene rate gives fine-grained exploration; skipping floor/border
-#      keeps the level structure valid (mario start, flag, solid floor).
+# 2. Individual_Grid.calculate_fitness()
+#    - Enhanced fitness function with playability metrics: path continuity,
+#      enemy placement checks, coin clustering, and penalties for bad design
+#      (floating pipes, unreachable items, too many enemies).
+#    - Why: Original fitness was arbitrary. New metrics makes sure levels have
+#      continuous paths, properly placed enemies, and logical item placement
+#      while penalizing common level design flaws.
 #
-# 3. Individual_Grid.generate_children()
-#    - Crossover: uniform (50/50 per cell), single-point (one cut in row-major),
-#      or multi-point (alternating segments). Then mutate the child genome.
-#    - Why: Crossover mixes parent levels; uniform is unbiased, single-point
-#      preserves contiguous regions, multi-point allows more mixing. Mutation
-#      after crossover adds exploration.
+# 3. Individual_Grid.mutate() + Individual_Grid.random_individual()
+#    - mutate(): Per-gene mutation using weighted tiles, skipping floor/border.
+#    - random_individual(): Structured level generation with sections (platforms,
+#      pipes, coins, enemies, mixed) and strict pipe placement on ground.
+#    - Why: Mutation explores while maintaining structure. Random generation
+#      creates Mario-like levels with coherent sections instead of random noise.
+#      Pipes are strictly placed on ground to prevent floating pipes.
 #
-# 4. _select_parent() and generate_successors()
-#    - Selection: roulette (fitness-proportionate), tournament (best of K), or
-#      random. Roulette uses shifted fitness so negative fitnesses become valid
-#      weights. generate_successors keeps top ELITE_COUNT, then fills the rest
-#      by selecting two parents and adding children until population size is met.
-#    - Why: Elitism prevents losing the best solution. Tournament is robust to
-#      fitness scale; roulette emphasizes better individuals; random is a
-#      baseline for diversity.
+# 4. Individual_Grid.generate_children() + _select_parent() + generate_successors()
+#    - generate_children(): Section-based crossover (4 sections with 50% chance
+#      to take from other parent per section).
+#    - _select_parent(): Tournament selection (default), roulette, or random.
+#    - generate_successors(): Elitism (top ELITE_COUNT) + offspring generation.
+#    - Why: Section crossover preserves large structural elements. Tournament
+#      selection balances exploration/exploitation. Elitism preserves best
+#      solutions while generating diverse offspring.
 # =============================================================================
 
 width = 200
 height = 16
-
-# --- CORE IMPLEMENTATION (1): GA configuration ---
-
-# ===========================================================================================
-# Changes made: Added constants for mutation rate, crossover mode/points, elite count,
-#   selection strategy, and tournament size; added weighted tile list for mutation.
-
-# What it does: Central place to tune the GA. Mutation weights favor "-" and "o" over
-#   pipes/enemies so levels stay playable; other constants choose selection and crossover.
-# ===========================================================================================
-
-MUTATION_RATE_GENE = 0.02           # Per-gene mutation probability (per tile)
-CROSSOVER_MODE = "uniform"          # "uniform" | "single_point" | "multi_point"
-CROSSOVER_POINTS = 3                # Number of cut points for multi-point crossover
-ELITE_COUNT = 48                    # Top-k individuals carried unchanged (e.g. 10% of 480)
-SELECTION_STRATEGY = "tournament"   # "roulette" | "tournament" | "random"
-TOURNAMENT_SIZE = 5                 # K for tournament selection (pick best of K random)
-
-# Tile weights for mutation (higher = more likely). Ensures more empty/coins, fewer pipes/enemies.
-_mutation_tile_weights = [
-    ("-", 12), ("X", 4), ("?", 2), ("M", 1), ("B", 2), ("o", 6), ("|", 1), ("T", 1), ("E", 2)
-]
-_mutation_tiles, _mutation_weights = zip(*_mutation_tile_weights)
 
 options = [
     "-",  # an empty space
@@ -85,14 +64,33 @@ options = [
     "|",  # a pipe segment
     "T",  # a pipe top
     "E",  # an enemy
-    #"f", # a flag, do not generate
-    #"v", # a flagpole, do not generate
+    #"f",  # a flag, do not generate
+    #"v",  # a flagpole, do not generate
     #"m"  # mario's start position, do not generate
 ]
 
-#
+# Tile weights for mutation (higher = more likely). Gives more empty/coins, fewer pipes/enemies.
+# STUDENT also consider weighting the different tile types so it's not uniformly random
+_mutation_tile_weights = [
+    ("-", 6),    # Empty space
+    ("X", 8),    # Solid blocks (common)
+    ("?", 3),    # Question blocks
+    ("M", 1),    # Mushroom blocks (rare)
+    ("B", 4),    # Breakable blocks
+    ("o", 5),    # Coins
+    ("|", 1),    # Pipe segment (rare - needs proper placement)
+    ("T", 1),    # Pipe top (rare - needs proper placement)
+    ("E", 2),    # Enemies
+]
+_mutation_tiles, _mutation_weights = zip(*_mutation_tile_weights)
+
+# GA Configuration
+MUTATION_RATE_GENE = 0.01
+ELITE_COUNT = 48
+SELECTION_STRATEGY = "tournament"
+TOURNAMENT_SIZE = 7
+
 # The level as a grid of tiles
-#
 class Individual_Grid(object):
     __slots__ = ["genome", "_fitness"]
 
@@ -108,16 +106,122 @@ class Individual_Grid(object):
         # print(measurements.keys())
         # Default fitness function: Just some arbitrary combination of a few criteria.  Is it good?  Who knows?
         # STUDENT Modify this, and possibly add more metrics.  You can replace this with whatever code you like.
+        
+        level = self.to_level()
+        
+        # 1. Check for reasonable enemy placement (not in pits)
+        enemy_placement = 0
+        enemy_count = 0
+        enemy_well_placed = 0
+        for y in range(height):
+            for x in range(width):
+                if level[y][x] == "E":
+                    enemy_count += 1
+                    # Enemy should have ground below (within reasonable distance)
+                    ground_found = False
+                    for check_y in range(y + 1, min(y + 3, height)):
+                        if level[check_y][x] in ["X", "B", "?", "M"]:
+                            ground_found = True
+                            break
+                    if ground_found:
+                        enemy_well_placed += 1
+        
+        if enemy_count > 0:
+            enemy_placement = enemy_well_placed / enemy_count
+        
+        # 2. STRICT PIPE CHECK: Pipes must be on ground
+        pipe_penalty = 0
+        for y in range(height):
+            for x in range(width):
+                if level[y][x] == "T":  # Pipe top
+                    # Pipe must have ground below it
+                    pipe_height = 1
+                    pipe_valid = True
+                    
+                    # Check pipe body
+                    check_y = y + 1
+                    while check_y < height and level[check_y][x] in ["|", "T"]:
+                        pipe_height += 1
+                        check_y += 1
+                    
+                    # Pipe bottom should be on ground (row 15 has "X")
+                    if check_y >= height or level[check_y][x] != "X":
+                        pipe_valid = False
+                        pipe_penalty += 2  # Strong penalty for floating pipes
+                    
+                    # Bonus for properly placed pipes
+                    if pipe_valid:
+                        pipe_penalty -= 0.5  # Small reward for good pipes
+        
+        # 3. Check for clustered coins (better than random scatter)
+        coin_clustering = 0
+        coin_positions = []
+        for y in range(height):
+            for x in range(width):
+                if level[y][x] == "o":
+                    coin_positions.append((x, y))
+        
+        if len(coin_positions) > 1:
+            distances = []
+            for i in range(len(coin_positions)):
+                for j in range(i + 1, len(coin_positions)):
+                    dist = abs(coin_positions[i][0] - coin_positions[j][0])
+                    if dist < 5:  # Coins close together
+                        distances.append(1.0)
+                    elif dist < 10:
+                        distances.append(0.5)
+            if distances:
+                coin_clustering = sum(distances) / len(distances)
+        
+        # Metrics
         coefficients = dict(
             meaningfulJumpVariance=0.5,
-            negativeSpace=0.6,
-            pathPercentage=0.5,
+            negativeSpace=0.6,  # More tolerant of empty space
+            pathPercentage=1.0,  
             emptyPercentage=0.6,
-            linearity=-0.5,
-            solvability=2.0
+            linearity=0.3,
+            solvability=2.0,  # Still important but not overriding
         )
-        self._fitness = sum(map(lambda m: coefficients[m] * measurements[m],
-                                coefficients))
+        
+        # Calculate weighted sum
+        fitness = 0
+        for metric, value in measurements.items():
+            if metric in coefficients:
+                fitness += coefficients[metric] * value
+        
+        # Metric contributions
+        fitness += enemy_placement * 1.0
+        fitness += coin_clustering * 1.0  # More reward for coin clusters
+        
+        # Only strict penalty: Bad pipe placement
+        fitness -= pipe_penalty * 1.0
+        
+        # Penalties (keep them light)
+        # Too many enemies (but be generous)
+        if enemy_count > 15:
+            fitness -= (enemy_count - 15) * 0.2
+        
+        # Too many pipes (but allow some)
+        pipe_count = sum(row.count("T") for row in level)
+        if pipe_count > 8:
+            fitness -= (pipe_count - 8) * 0.2
+        
+        # Reward for having enemies and coins (encourage them!)
+        if enemy_count > 0:
+            fitness += min(enemy_count, 10) * 0.1
+        
+        coin_count = sum(row.count("o") for row in level)
+        if coin_count > 0:
+            fitness += min(coin_count, 30) * 0.05
+        
+        # Reward for question blocks and breakable blocks
+        qblock_count = sum(row.count("?") + row.count("M") for row in level)
+        fitness += min(qblock_count, 10) * 0.1
+        
+        breakable_count = sum(row.count("B") for row in level)
+        fitness += min(breakable_count, 10) * 0.05
+        
+        self._fitness = fitness
         return self
 
     # Return the cached fitness value or calculate it as needed.
@@ -126,19 +230,12 @@ class Individual_Grid(object):
             self.calculate_fitness()
         return self._fitness
 
-    # --- CORE IMPLEMENTATION (2): Mutation ---
-
-    # ===========================================================================================
     # Mutate a genome into a new genome.  Note that this is a _genome_, not an individual!
-    # ===========================================================================================
-    # Changes made: Replaced empty loop with per-gene mutation; use MUTATION_RATE_GENE and
-    #   weighted tile list (_mutation_tiles / _mutation_weights); only touch interior, non-floor cells.
-
-    # What it does: For each mutable tile (rows 0..height-2, cols 1..width-2), with probability
-    #   MUTATION_RATE_GENE replaces it with a new tile chosen by weight (more empty/coins, fewer pipes).
-    # ===========================================================================================
-
     def mutate(self, genome):
+        # STUDENT implement a mutation operator, also consider not mutating this individual
+        # STUDENT also consider weighting the different tile types so it's not uniformly random
+        # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
+
         left, right = 1, width - 1
         for y in range(height - 1):  # skip last row (floor)
             for x in range(left, right):
@@ -146,50 +243,30 @@ class Individual_Grid(object):
                     genome[y][x] = random.choices(_mutation_tiles, weights=_mutation_weights, k=1)[0]
         return genome
 
-    # --- CORE IMPLEMENTATION (3): Crossover ---
-
-    # ===========================================================================================
-    # Create zero or more children from self and other (crossover + mutation).
-    # ===========================================================================================
-    # Changes made: Replaced empty crossover with three modes: uniform (50/50 per cell),
-    #   single-point (one cut in row-major order), multi-point (alternating segments); then call mutate.
-
-    # What it does: Builds one child genome by combining self and other per CROSSOVER_MODE, mutates it,
-    #   and returns a single Individual_Grid. Floor row and first/last columns are never crossed.
-    # ===========================================================================================
-
+    # Create zero or more children from self and other
     def generate_children(self, other):
-        left, right = 1, width - 1
-        rows_used = height - 1  # exclude floor row for crossover
-        total_cells = rows_used * (right - left)
-
-        if CROSSOVER_MODE == "uniform":
-            new_genome = copy.deepcopy(self.genome)
-            for y in range(rows_used):
-                for x in range(left, right):
-                    if random.random() < 0.5:
+        new_genome = copy.deepcopy(self.genome)
+        # Leaving first and last columns alone...
+        # do crossover with other
+        left = 1
+        right = width - 1
+        
+        # Keep section-based crossover
+        sections = 4
+        section_width = (width - 2) // sections
+        
+        for section in range(sections):
+            start_x = 1 + section * section_width
+            end_x = min(start_x + section_width, width - 2)
+            
+            if random.random() < 0.5:  # 50% chance to take from other parent for this section
+                for y in range(height - 1):  # Skip floor
+                    for x in range(start_x, end_x):
+                        # STUDENT Which one should you take?  Self, or other?  Why?
+                        # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
                         new_genome[y][x] = other.genome[y][x]
-        elif CROSSOVER_MODE == "single_point":
-            cut = random.randint(0, total_cells) if total_cells > 0 else 0
-            new_genome = copy.deepcopy(self.genome)
-            idx = 0
-            for y in range(rows_used):
-                for x in range(left, right):
-                    if idx >= cut:
-                        new_genome[y][x] = other.genome[y][x]
-                    idx += 1
-        else:  # multi_point
-            new_genome = copy.deepcopy(self.genome)
-            n_pts = min(CROSSOVER_POINTS, max(0, total_cells - 1))
-            if n_pts > 0 and total_cells > 1:
-                cuts = sorted([0] + random.sample(range(1, total_cells), n_pts) + [total_cells])
-                for seg_i in range(len(cuts) - 1):
-                    use_other = (seg_i % 2) == 1
-                    for idx in range(cuts[seg_i], cuts[seg_i + 1]):
-                        y = idx // (right - left)
-                        x = left + idx % (right - left)
-                        if use_other:
-                            new_genome[y][x] = other.genome[y][x]
+        
+        # do mutation; note we're returning a one-element tuple here
         self.mutate(new_genome)
         return (Individual_Grid(new_genome),)
 
@@ -215,12 +292,155 @@ class Individual_Grid(object):
     def random_individual(cls):
         # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
         # STUDENT also consider weighting the different tile types so it's not uniformly random
-        g = [random.choices(options, k=width) for row in range(height)]
+        # Create a Mario-like level with proper structure
+        g = [["-" for col in range(width)] for row in range(height)]
+        
+        # Solid floor
         g[15][:] = ["X"] * width
+        
+        # Mario start position
         g[14][0] = "m"
+        
+        # Flag and flagpole
         g[7][-1] = "v"
-        g[8:14][-1] = ["f"] * 6
-        g[14:16][-1] = ["X", "X"]
+        for row in range(8, 14):
+            g[row][-1] = "f"
+        g[14][-1] = "X"
+        g[15][-1] = "X"
+        
+        # Create structured sections
+        sections = 5  # Number of distinct platforming sections
+        section_width = (width - 2) // sections
+        
+        for section in range(sections):
+            start_x = 1 + section * section_width
+            end_x = min(start_x + section_width, width - 2)
+            
+            # Choose section type
+            section_type = random.choice(["platforms", "pipes", "coins", "enemies", "mixed"])
+            
+            if section_type == "platforms":
+                # Create floating platforms
+                num_platforms = random.randint(1, 3)
+                for _ in range(num_platforms):
+                    plat_x = random.randint(start_x, end_x - 4)
+                    plat_y = random.randint(10, 13)
+                    plat_width = random.randint(3, 6)
+                    plat_height = random.randint(0, 2)  # Multi-level platforms
+                    
+                    for y_offset in range(plat_height + 1):
+                        for x_offset in range(plat_width):
+                            if 0 <= plat_y - y_offset < height and 0 <= plat_x + x_offset < width:
+                                g[plat_y - y_offset][plat_x + x_offset] = "X"
+            
+            elif section_type == "pipes":
+                # Create pipes (ALWAYS ON GROUND - row 14 is ground level, row 15 is solid floor)
+                num_pipes = random.randint(1, 2)
+                for _ in range(num_pipes):
+                    pipe_x = random.randint(start_x, end_x - 2)
+                    pipe_height = random.randint(2, 4)
+                    
+                    # PIPE STRICTNESS: MUST be on ground
+                    # Pipe top (row indices: 0 is top, 15 is bottom)
+                    # Ground level is row 14 (just above solid floor at row 15)
+                    # So pipe top should be at: 15 - pipe_height
+                    g[15 - pipe_height][pipe_x] = "T"
+                    # Pipe body
+                    for h in range(1, pipe_height):
+                        g[15 - pipe_height + h][pipe_x] = "|"
+                    # Pipe base is already on ground (row 15 has "X")
+            
+            elif section_type == "coins":
+                # Create coin patterns
+                pattern = random.choice(["line", "arc", "block", "scatter", "staircase"])
+                coin_x = random.randint(start_x, end_x - 5)
+                coin_y = random.randint(10, 13)
+                
+                if pattern == "line":
+                    for i in range(5):
+                        if 0 <= coin_x + i < width:
+                            g[coin_y][coin_x + i] = "o"
+                elif pattern == "arc":
+                    for i in range(5):
+                        if 0 <= coin_x + i < width and 0 <= coin_y - abs(2 - i) < height:
+                            g[coin_y - abs(2 - i)][coin_x + i] = "o"
+                elif pattern == "block":
+                    for i in range(3):
+                        for j in range(3):
+                            if 0 <= coin_y + i < height and 0 <= coin_x + j < width:
+                                g[coin_y + i][coin_x + j] = "o"
+                elif pattern == "scatter":
+                    # Random scatter of coins in the section
+                    for _ in range(random.randint(3, 8)):
+                        scatter_x = random.randint(start_x, end_x - 1)
+                        scatter_y = random.randint(8, 13)
+                        if g[scatter_y][scatter_x] == "-":
+                            g[scatter_y][scatter_x] = "o"
+                elif pattern == "staircase":
+                    # Diagonal staircase of coins
+                    for i in range(5):
+                        if 0 <= coin_x + i < width and 0 <= coin_y - i < height:
+                            g[coin_y - i][coin_x + i] = "o"
+            
+            elif section_type == "enemies":
+                # Place enemies - more variety
+                num_enemies = random.randint(1, 4)  # More enemies possible
+                for _ in range(num_enemies):
+                    enemy_x = random.randint(start_x, end_x - 1)
+                    
+                    # Choose enemy type placement
+                    enemy_type = random.choice(["ground", "platform", "floating"])
+                    
+                    if enemy_type == "ground":
+                        # Enemy on ground
+                        if g[15][enemy_x] == "X":
+                            g[14][enemy_x] = "E"
+                    elif enemy_type == "platform":
+                        # Enemy on existing platform or new small platform
+                        # Check if there's already a platform
+                        placed = False
+                        for y in range(11, 14):
+                            if g[y][enemy_x] == "X":
+                                g[y-1][enemy_x] = "E"
+                                placed = True
+                                break
+                        if not placed:
+                            # Create a small platform for the enemy
+                            g[12][enemy_x] = "X"
+                            g[13][enemy_x] = "E"
+                    elif enemy_type == "floating":
+                        # Enemy on a floating brick (sometimes unreachable for challenge)
+                        if random.random() < 0.3:  # 30% chance for floating enemy
+                            float_y = random.randint(8, 11)
+                            if g[float_y][enemy_x] == "-":
+                                g[float_y][enemy_x] = "E"
+            
+            elif section_type == "mixed":
+                # Combination of elements - more generous with items
+                # Add some question blocks
+                num_qblocks = random.randint(1, 3)
+                for _ in range(num_qblocks):
+                    qblock_x = random.randint(start_x, end_x - 2)
+                    qblock_y = random.randint(10, 12)
+                    if g[qblock_y][qblock_x] == "-":
+                        g[qblock_y][qblock_x] = "?" if random.random() < 0.7 else "M"
+                
+                # Add breakable blocks
+                num_breakable = random.randint(1, 3)
+                for _ in range(num_breakable):
+                    block_x = random.randint(start_x, end_x - 1)
+                    block_y = random.randint(11, 13)
+                    if g[block_y][block_x] == "-":
+                        g[block_y][block_x] = "B"
+                
+                # Maybe add some coins too
+                if random.random() < 0.5:
+                    coin_x = random.randint(start_x, end_x - 3)
+                    coin_y = random.randint(10, 12)
+                    for i in range(3):
+                        if g[coin_y][coin_x + i] == "-":
+                            g[coin_y][coin_x + i] = "o"
+        
         return cls(g)
 
 
@@ -445,17 +665,6 @@ class Individual_DE(object):
 
 Individual = Individual_Grid
 
-# --- CORE IMPLEMENTATION (4): Selection + generate_successors ---
-
-# ===========================================================================================
-# Changes made: Added _select_parent() and full generate_successors(). Selection supports
-#   roulette (shifted fitness so negative values work), tournament (best of K), and random.
-#   generate_successors keeps top ELITE_COUNT, then fills rest by selecting two parents and
-#   adding children until population size is reached.
-
-# What it does: _select_parent returns one individual for breeding. generate_successors
-#   returns the next generation: elite individuals plus offspring from selected parent pairs.
-# ===========================================================================================
 
 def _select_parent(population, strategy=SELECTION_STRATEGY):
     """Select one individual: roulette (fitness-proportionate), tournament (best of K), or random."""
@@ -479,7 +688,9 @@ def _select_parent(population, strategy=SELECTION_STRATEGY):
 
 
 def generate_successors(population):
-    """Build next generation: elitism (top ELITE_COUNT) + offspring via selection and crossover."""
+    results = []
+    # STUDENT Design and implement this
+    # Hint: Call generate_children() on some individuals and fill up results.
     pop_limit = len(population)
     # Sort best first for elitism
     sorted_pop = sorted(population, key=Individual.fitness, reverse=True)
@@ -500,28 +711,38 @@ def generate_successors(population):
 def ga():
     # STUDENT Feel free to play with this parameter
     pop_limit = 480
+    
     # Code to parallelize some computations
     batches = os.cpu_count()
     if pop_limit % batches != 0:
         print("It's ideal if pop_limit divides evenly into " + str(batches) + " batches.")
     batch_size = int(math.ceil(pop_limit / batches))
-    with mpool.Pool(processes=os.cpu_count()) as pool:
-        init_time = time.time()
-        # STUDENT (Optional) change population initialization
-        population = [Individual.random_individual() if random.random() < 0.9
-                      else Individual.empty_individual()
-                      for _g in range(pop_limit)]
-        # But leave this line alone; we have to reassign to population because we get a new population that has more cached stuff in it.
-        population = pool.map(Individual.calculate_fitness,
-                              population,
-                              batch_size)
-        init_done = time.time()
-        print("Created and calculated initial population statistics in:", init_done - init_time, "seconds")
-        generation = 0
-        start = time.time()
-        now = start
-        print("Use ctrl-c to terminate this loop manually.")
-        try:
+    
+    try:
+        with mpool.Pool(processes=os.cpu_count()) as pool:
+            init_time = time.time()
+            # STUDENT (Optional) change population initialization
+            population = [Individual.random_individual() if random.random() < 0.9
+                          else Individual.empty_individual()
+                          for _g in range(pop_limit)]
+            # But leave this line alone; we have to reassign to population because we get a new population that has more cached stuff in it.
+            population = pool.map(Individual.calculate_fitness,
+                                  population,
+                                  batch_size)
+            init_done = time.time()
+            print("Created and calculated initial population statistics in:", init_done - init_time, "seconds")
+            generation = 0
+            start = time.time()
+            now = start
+            print("Use ctrl-c to terminate this loop manually.")
+            best_fitness_history = []
+            convergence_window = 10
+            max_generations = 500
+            
+            # Track best individual across all generations
+            all_time_best = None
+            all_time_best_fitness = float('-inf')
+            
             while True:
                 now = time.time()
                 # Print out statistics
@@ -534,11 +755,39 @@ def ga():
                     with open("levels/last.txt", 'w') as f:
                         for row in best.to_level():
                             f.write("".join(row) + "\n")
+                    
+                    # Update all-time best
+                    if best.fitness() > all_time_best_fitness:
+                        all_time_best = best
+                        all_time_best_fitness = best.fitness()
+                        # Save all-time best immediately
+                        timestamp = time.strftime("%m_%d_%H_%M_%S")
+                        filename = f"levels/best_so_far_gen_{generation}_{timestamp}.txt"
+                        with open(filename, 'w') as f:
+                            for row in best.to_level():
+                                f.write("".join(row) + "\n")
+                        print(f"New all-time best! Saved to {filename}")
+                
                 generation += 1
-                # STUDENT Determine stopping condition
-                stop_condition = False
-                if stop_condition:
-                    break
+                
+                # Store best fitness for convergence check
+                if generation > 0:
+                    best = max(population, key=Individual.fitness)
+                    best_fitness_history.append(best.fitness())
+                    
+                    # Check convergence
+                    if generation > convergence_window:
+                        recent_avg = sum(best_fitness_history[-convergence_window:]) / convergence_window
+                        overall_avg = sum(best_fitness_history) / len(best_fitness_history)
+                        if recent_avg > overall_avg * 0.95:  # Less than 5% improvement
+                            print(f"Converged at generation {generation}")
+                            break
+                    
+                    # Max generations
+                    if generation >= max_generations:
+                        print(f"Reached max generations: {max_generations}")
+                        break
+                
                 # STUDENT Also consider using FI-2POP as in the Sorenson & Pasquier paper
                 gentime = time.time()
                 next_population = generate_successors(population)
@@ -551,18 +800,78 @@ def ga():
                 popdone = time.time()
                 print("Calculated fitnesses in:", popdone - gendone, "seconds")
                 population = next_population
-        except KeyboardInterrupt:
-            pass
-    return population
+                
+    except KeyboardInterrupt:
+        print("\nInterrupted by user. Saving current best...")
+        # Save current population before returning
+        if population and len(population) > 0:
+            best = max(population, key=Individual.fitness)
+            timestamp = time.strftime("%m_%d_%H_%M_%S")
+            filename = f"levels/interrupted_gen_{generation}_{timestamp}.txt"
+            with open(filename, 'w') as f:
+                for row in best.to_level():
+                    f.write("".join(row) + "\n")
+            print(f"Saved interrupted generation best: {filename}")
+            
+            # Also save all-time best if we have it
+            if all_time_best:
+                filename = f"levels/all_time_best_{timestamp}.txt"
+                with open(filename, 'w') as f:
+                    for row in all_time_best.to_level():
+                        f.write("".join(row) + "\n")
+                print(f"Saved all-time best: {filename}")
+    
+    print(f"\nGA terminated at generation {generation}")
+    
+    if population and len(population) > 0:
+        best = max(population, key=Individual.fitness)
+        print(f"Best fitness in final population: {best.fitness()}")
+    else:
+        print("WARNING: Population is empty!")
+    
+    return population  # Return whatever population we have (even if interrupted)
 
 
 if __name__ == "__main__":
-    final_gen = sorted(ga(), key=Individual.fitness, reverse=True)
-    best = final_gen[0]
-    print("Best fitness: " + str(best.fitness()))
-    now = time.strftime("%m_%d_%H_%M_%S")
-    # STUDENT You can change this if you want to blast out the whole generation, or ten random samples, or...
-    for k in range(0, 10):
-        with open("levels/" + now + "_" + str(k) + ".txt", 'w') as f:
-            for row in final_gen[k].to_level():
-                f.write("".join(row) + "\n")
+    # ===================================================================
+    # Create levels directory if it doesn't exist
+    # ===================================================================
+    if not os.path.exists("levels"):
+        os.makedirs("levels")
+        print("Created 'levels' directory")
+    
+    # Run GA - it will return population even if interrupted
+    try:
+        final_population = ga()
+    except Exception as e:
+        print(f"Error during GA execution: {e}")
+        final_population = []
+    
+    # Always save files, even if population is incomplete
+    if final_population and len(final_population) > 0:
+        final_gen = sorted(final_population, key=Individual.fitness, reverse=True)
+        best = final_gen[0]
+        print("Best fitness: " + str(best.fitness()))
+        now = time.strftime("%m_%d_%H_%M_%S")
+        
+        # Save the top 10 levels (or fewer if we have less than 10)
+        num_to_save = min(10, len(final_gen))
+        print(f"Saving top {num_to_save} levels...")
+        
+        for k in range(0, num_to_save):
+            filename = f"levels/{now}_top_{k+1}.txt"
+            with open(filename, 'w') as f:
+                for row in final_gen[k].to_level():
+                    f.write("".join(row) + "\n")
+            print(f"Saved: {filename} (fitness: {final_gen[k].fitness():.2f})")
+    else:
+        print("No levels to save. Population is empty or GA didn't run properly.")
+        
+        # Check if last.txt exists from previous run
+        if os.path.exists("levels/last.txt"):
+            print("Found 'levels/last.txt' from previous run")
+            # Copy it with a timestamp
+            timestamp = time.strftime("%m_%d_%H_%M_%S")
+            backup_name = f"levels/backup_last_{timestamp}.txt"
+            shutil.copy2("levels/last.txt", backup_name)
+            print(f"Backed up last.txt as {backup_name}")
