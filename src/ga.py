@@ -501,7 +501,7 @@ class Individual_DE(object):
         pipe_positions = [de[0] for de in self.genome if de[1] == "7_pipe"]
         if len(pipe_positions) > 1:
             pipe_proximity = sum(abs(a-b) for a,b in zip(pipe_positions, pipe_positions[1:]))
-            fitness += max(0, 5.0 - pipe_proximity/50)  # Reward pipes spaced 50-100px apart
+            fitness += max(0, 5.0 - pipe_proximity/50)
 
         penalties = 0
         if len(list(filter(lambda de: de[1] == "6_stairs", self.genome))) > 5:
@@ -620,7 +620,6 @@ class Individual_DE(object):
     def generate_children(self, other):
         # STUDENT How does this work?  Explain it in your writeup.
         
-        # FIX: Check if genomes are empty
         if len(self.genome) == 0:
             pa = 0
         else:
@@ -750,7 +749,7 @@ def _select_parent(population, strategy=SELECTION_STRATEGY):
         return random.choice(population)
     if strategy == "tournament":
         k = min(TOURNAMENT_SIZE, len(population))
-        if k == 0:  # This should never happen if population is not empty, but let's check
+        if k == 0:
             return None
         pool = random.sample(population, k)
         return max(pool, key=Individual.fitness)
@@ -818,7 +817,6 @@ def ga():
             print(f"Successfully created {len(population)} individuals")
             print("Calculating initial fitnesses...")
             
-            # But leave this line alone; we have to reassign to population because we get a new population that has more cached stuff in it.
             population = pool.map(Individual.calculate_fitness,
                                   population,
                                   batch_size)
