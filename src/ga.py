@@ -488,18 +488,47 @@ class Individual_DE(object):
         coefficients = dict(
             meaningfulJumpVariance=0.5,
             negativeSpace=0.6,
-            pathPercentage=0.5,
+            pathPercentage=0.8,
             emptyPercentage=0.6,
             linearity=-0.5,
             solvability=2.0
         )
+        
+        # Calculate base fitness first
+        fitness = sum(map(lambda m: coefficients[m] * measurements[m], coefficients))
+        
+        # Pipe reward
+        pipe_positions = [de[0] for de in self.genome if de[1] == "7_pipe"]
+        if len(pipe_positions) > 1:
+            pipe_proximity = sum(abs(a-b) for a,b in zip(pipe_positions, pipe_positions[1:]))
+            fitness += max(0, 5.0 - pipe_proximity/50)  # Reward pipes spaced 50-100px apart
+
         penalties = 0
-        # STUDENT For example, too many stairs are unaesthetic.  Let's penalize that
         if len(list(filter(lambda de: de[1] == "6_stairs", self.genome))) > 5:
             penalties -= 2
-        # STUDENT If you go for the FI-2POP extra credit, you can put constraint calculation in here too and cache it in a new entry in __slots__.
-        self._fitness = sum(map(lambda m: coefficients[m] * measurements[m],
-                                coefficients)) + penalties
+        
+        # Element count balancing
+        element_counts = {}
+        for de in self.genome:
+            de_type = de[1]
+            element_counts[de_type] = element_counts.get(de_type, 0) + 1
+        
+        # Penalize too many pipes
+        if element_counts.get("7_pipe", 0) > 6:
+            penalties -= (element_counts["7_pipe"] - 6) * 0.5
+        
+        # Penalize too many enemies
+        if element_counts.get("2_enemy", 0) > 12:
+            penalties -= (element_counts["2_enemy"] - 12) * 0.3
+        
+        # Reward good number of coins (8-20 is ideal)
+        coin_count = element_counts.get("3_coin", 0)
+        if 8 <= coin_count <= 20:
+            fitness += 3.0
+        elif coin_count > 0:
+            fitness += min(coin_count / 20, 2.0)  # Partial reward
+            
+        self._fitness = fitness + penalties
         return self
 
     def fitness(self):
@@ -582,7 +611,8 @@ class Individual_DE(object):
                     madeof = random.choice(["?", "X", "B"])
                 new_de = (x, de_type, w, y, madeof)
             elif de_type == "2_enemy":
-                pass
+                    new_x = offset_by_upto(x, width/15, min=1, max=width-2)
+                    new_de = (new_x, de_type)
             new_genome.pop(to_change)
             heapq.heappush(new_genome, new_de)
         return new_genome
@@ -668,7 +698,7 @@ class Individual_DE(object):
         return Individual_DE(g)
 
 
-Individual = Individual_Grid
+Individual = Individual_DE
 
 
 def _select_parent(population, strategy=SELECTION_STRATEGY):
