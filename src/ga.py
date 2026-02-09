@@ -15,6 +15,11 @@ import math
 #   2. Individual_Grid.calculate_fitness()
 #   3. Individual_Grid.mutate() + Individual_Grid.random_individual()
 #   4. Individual_Grid.generate_children() + _select_parent() + generate_successors()
+#
+# Citations:
+# - Fitness function metrics inspired by various Mario level generation papers and the provided metrics.py.
+# - Mutation and random generation ideas inspired by common Mario level design patterns and structures.
+# - Some comments generated with Co-Pilot to explain the rationale behind design choices.
 # =============================================================================
 # Locations and behavior:
 #
