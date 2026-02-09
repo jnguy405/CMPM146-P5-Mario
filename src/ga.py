@@ -619,8 +619,18 @@ class Individual_DE(object):
 
     def generate_children(self, other):
         # STUDENT How does this work?  Explain it in your writeup.
-        pa = random.randint(0, len(self.genome) - 1)
-        pb = random.randint(0, len(other.genome) - 1)
+        
+        # FIX: Check if genomes are empty
+        if len(self.genome) == 0:
+            pa = 0
+        else:
+            pa = random.randint(0, len(self.genome) - 1)
+        
+        if len(other.genome) == 0:
+            pb = 0
+        else:
+            pb = random.randint(0, len(other.genome) - 1)
+        
         a_part = self.genome[:pa] if len(self.genome) > 0 else []
         b_part = other.genome[pb:] if len(other.genome) > 0 else []
         ga = a_part + b_part
@@ -678,23 +688,54 @@ class Individual_DE(object):
     @classmethod
     def empty_individual(_cls):
         # STUDENT Maybe enhance this
+        # Instead of completely empty, give it a few basic elements
         g = []
+        # Add at least one element to avoid empty genome issues
+        g.append((width // 2, "1_platform", 4, 10, "X"))
         return Individual_DE(g)
 
     @classmethod
     def random_individual(_cls):
         # STUDENT Maybe enhance this
         elt_count = random.randint(8, 128)
-        g = [random.choice([
-            (random.randint(1, width - 2), "0_hole", random.randint(1, 8)),
-            (random.randint(1, width - 2), "1_platform", random.randint(1, 8), random.randint(0, height - 1), random.choice(["?", "X", "B"])),
-            (random.randint(1, width - 2), "2_enemy"),
-            (random.randint(1, width - 2), "3_coin", random.randint(0, height - 1)),
-            (random.randint(1, width - 2), "4_block", random.randint(0, height - 1), random.choice([True, False])),
-            (random.randint(1, width - 2), "5_qblock", random.randint(0, height - 1), random.choice([True, False])),
-            (random.randint(1, width - 2), "6_stairs", random.randint(1, height - 4), random.choice([-1, 1])),
-            (random.randint(1, width - 2), "7_pipe", random.randint(2, height - 4))
-        ]) for i in range(elt_count)]
+        g = []
+        for i in range(elt_count):
+            x = random.randint(1, width - 2)  # Avoid edges
+            
+            element_type = random.choice([
+                "0_hole", "1_platform", "2_enemy", "3_coin", 
+                "4_block", "5_qblock", "6_stairs", "7_pipe"
+            ])
+            
+            if element_type == "0_hole":
+                w = random.randint(1, 8)
+                g.append((x, element_type, w))
+            elif element_type == "1_platform":
+                w = random.randint(1, 8)
+                y = random.randint(0, height - 3)  # Keep platform above ground
+                madeof = random.choice(["?", "X", "B"])
+                g.append((x, element_type, w, y, madeof))
+            elif element_type == "2_enemy":
+                g.append((x, element_type))
+            elif element_type == "3_coin":
+                y = random.randint(0, height - 2)  # Keep coin above ground
+                g.append((x, element_type, y))
+            elif element_type == "4_block":
+                y = random.randint(0, height - 2)  # Keep block above ground
+                breakable = random.choice([True, False])
+                g.append((x, element_type, y, breakable))
+            elif element_type == "5_qblock":
+                y = random.randint(0, height - 2)  # Keep qblock above ground
+                has_powerup = random.choice([True, False])
+                g.append((x, element_type, y, has_powerup))
+            elif element_type == "6_stairs":
+                h = random.randint(1, min(8, height - 4))  # Keep stairs reasonable height
+                dx = random.choice([-1, 1])
+                g.append((x, element_type, h, dx))
+            elif element_type == "7_pipe":
+                h = random.randint(2, height - 4)  # Ensure pipe fits within bounds
+                g.append((x, element_type, h))
+        
         return Individual_DE(g)
 
 
@@ -703,12 +744,14 @@ Individual = Individual_DE
 
 def _select_parent(population, strategy=SELECTION_STRATEGY):
     """Select one individual: roulette (fitness-proportionate), tournament (best of K), or random."""
-    if not population:
+    if not population or len(population) == 0:
         return None
     if strategy == "random":
         return random.choice(population)
     if strategy == "tournament":
         k = min(TOURNAMENT_SIZE, len(population))
+        if k == 0:  # This should never happen if population is not empty, but let's check
+            return None
         pool = random.sample(population, k)
         return max(pool, key=Individual.fitness)
     # roulette: fitness-proportionate (shift fitnesses to be non-negative)
@@ -724,22 +767,26 @@ def _select_parent(population, strategy=SELECTION_STRATEGY):
 
 def generate_successors(population):
     results = []
-    # STUDENT Design and implement this
-    # Hint: Call generate_children() on some individuals and fill up results.
     pop_limit = len(population)
+    
     # Sort best first for elitism
     sorted_pop = sorted(population, key=Individual.fitness, reverse=True)
     results = list(sorted_pop[:ELITE_COUNT])
     need = pop_limit - len(results)
-    for _ in range(need):
+    
+    for i in range(need):
         p1 = _select_parent(population)
         p2 = _select_parent(population)
         if p1 is None or p2 is None:
-            break
+            # If we can't select parents, add a random individual
+            results.append(Individual.random_individual())
+            continue
+            
         children = p1.generate_children(p2)
         results.extend(children)
         if len(results) >= pop_limit:
             break
+    
     return results[:pop_limit]
 
 
@@ -757,15 +804,27 @@ def ga():
         with mpool.Pool(processes=os.cpu_count()) as pool:
             init_time = time.time()
             # STUDENT (Optional) change population initialization
-            population = [Individual.random_individual() if random.random() < 0.9
-                          else Individual.empty_individual()
-                          for _g in range(pop_limit)]
+            print(f"Creating initial population of size {pop_limit}...")
+            population = []
+            for i in range(pop_limit):
+                if random.random() < 0.9:
+                    ind = Individual.random_individual()
+                else:
+                    ind = Individual.empty_individual()
+                population.append(ind)
+                if i % 100 == 0:  # Progress indicator
+                    print(f"Created {i+1}/{pop_limit} individuals...")
+            
+            print(f"Successfully created {len(population)} individuals")
+            print("Calculating initial fitnesses...")
+            
             # But leave this line alone; we have to reassign to population because we get a new population that has more cached stuff in it.
             population = pool.map(Individual.calculate_fitness,
                                   population,
                                   batch_size)
             init_done = time.time()
-            print("Created and calculated initial population statistics in:", init_done - init_time, "seconds")
+            print(f"Created and calculated initial population statistics in:", init_done - init_time, "seconds")
+            print(f"Population size after fitness calculation: {len(population)}")
             generation = 0
             start = time.time()
             now = start
