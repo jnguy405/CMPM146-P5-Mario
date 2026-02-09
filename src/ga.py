@@ -446,7 +446,7 @@ class Individual_Grid(object):
                     # Constrain vertical distance (max 4 blocks jump height)
                     max_jump = 4
                     plat_y = random.randint(max(10, last_platform_y - max_jump), 
-                                        min(13, last_platform_y + 2))
+                                        min(12, last_platform_y + 2))
                     
                     plat_width = random.randint(3, 6)
                     plat_height = random.randint(0, 1)  # Reduced height for cleaner platforms
@@ -553,7 +553,7 @@ class Individual_Grid(object):
                 num_qblocks = random.randint(1, 3)
                 for _ in range(num_qblocks):
                     qblock_x = random.randint(start_x, end_x - 2)
-                    qblock_y = random.randint(11, 13)  # Lowered from (9, 11) for easier reach
+                    qblock_y = random.randint(11, 12)
                     if g[qblock_y][qblock_x] == "-":
                         g[qblock_y][qblock_x] = "?" if random.random() < 0.7 else "M"
                 
@@ -561,14 +561,14 @@ class Individual_Grid(object):
                 num_breakable = random.randint(1, 3)
                 for _ in range(num_breakable):
                     block_x = random.randint(start_x, end_x - 1)
-                    block_y = random.randint(11, 13)
+                    block_y = random.randint(10, 12)
                     if g[block_y][block_x] == "-":
                         g[block_y][block_x] = "B"
                 
                 # Maybe add some coins too
                 if random.random() < 0.5:
                     coin_x = random.randint(start_x, end_x - 3)
-                    coin_y = random.randint(11, 13)
+                    coin_y = random.randint(10, 13)
                     for i in range(3):
                         if g[coin_y][coin_x + i] == "-":
                             g[coin_y][coin_x + i] = "o"
