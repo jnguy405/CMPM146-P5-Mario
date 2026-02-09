@@ -75,7 +75,6 @@ options = [
 ]
 
 # Tile weights for mutation (higher = more likely). Gives more empty/coins, fewer pipes/enemies.
-# STUDENT also consider weighting the different tile types so it's not uniformly random
 _mutation_tile_weights = [
     ("-", 6),    # Empty space
     ("X", 8),    # Solid blocks (common)
@@ -925,9 +924,7 @@ def ga():
 
 
 if __name__ == "__main__":
-    # ===================================================================
     # Create levels directory if it doesn't exist
-    # ===================================================================
     if not os.path.exists("levels"):
         os.makedirs("levels")
         print("Created 'levels' directory")
