@@ -7,6 +7,7 @@ import random
 import shutil
 import time
 import math
+import sys
 
 # =============================================================================
 # CORE IMPLEMENTATION ADDITIONS (P5 Mario)
@@ -76,14 +77,14 @@ options = [
 
 # Tile weights for mutation (higher = more likely). Gives more empty/coins, fewer pipes/enemies.
 _mutation_tile_weights = [
-    ("-", 6),    # Empty space
-    ("X", 8),    # Solid blocks (common)
+    ("-", 7),    # Empty space
+    ("X", 6),    # Solid blocks (common)
     ("?", 3),    # Question blocks
     ("M", 1),    # Mushroom blocks (rare)
     ("B", 4),    # Breakable blocks
     ("o", 5),    # Coins
-    ("|", 1),    # Pipe segment (rare - needs proper placement)
-    ("T", 1),    # Pipe top (rare - needs proper placement)
+    ("|", 0),    # Pipe segment (rare - needs proper placement)
+    ("T", 0),    # Pipe top (rare - needs proper placement)
     ("E", 2),    # Enemies
 ]
 _mutation_tiles, _mutation_weights = zip(*_mutation_tile_weights)
@@ -240,22 +241,120 @@ class Individual_Grid(object):
         # STUDENT also consider weighting the different tile types so it's not uniformly random
         # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
 
-        left, right = 1, width - 1
-        for y in range(height - 1):  # skip last row (floor)
-            for x in range(left, right):
-                if random.random() < MUTATION_RATE_GENE:
-                    genome[y][x] = random.choices(_mutation_tiles, weights=_mutation_weights, k=1)[0]
-        return genome
+        for y in range(1, height - 1):
+            for x in range(1, width - 1):
+                if genome[y][x] not in ["m", "v", "f"] and genome[y + 1][x] != "X":
+                    if random.random() < MUTATION_RATE_GENE:
+                        new_tile = random.choices(_mutation_tiles, weights=_mutation_weights)[0]
+                        
+                        # PLAYABILITY CONSTRAINTS
+                        # 1. Blocks/Question blocks must be reachable (within jump height from ground/platforms)
+                        if new_tile in ["X", "B", "?", "M"]:
+                            # Find nearest ground/platform below
+                            ground_distance = None
+                            for check_y in range(y + 1, height):
+                                if genome[check_y][x] in ["X", "B", "?", "M"]:
+                                    ground_distance = check_y - y
+                                    break
+                            
+                            # Only place if within Mario's jump reach (4 blocks from ground)
+                            if ground_distance is None or ground_distance > 4:
+                                # Check if there's a nearby platform within horizontal reach
+                                has_nearby_platform = False
+                                for dx in range(-4, 5):  # Check 4 blocks left and right
+                                    check_x = x + dx
+                                    if 0 <= check_x < width:
+                                        for check_y in range(max(0, y - 4), y):
+                                            if genome[check_y][check_x] == "X":
+                                                has_nearby_platform = True
+                                                break
+                                
+                                if not has_nearby_platform:
+                                    continue  # Skip this mutation, block is unreachable
+                        
+                        # 2. Don't place blocks too high (above row 8 is unreachable without special setup)
+                        if new_tile in ["X", "B", "?", "M", "o"] and y < 8:
+                            continue
+                        
+                        # 3. Enemies must have ground within 2 blocks below
+                        if new_tile == "E":
+                            has_ground_nearby = False
+                            for check_y in range(y + 1, min(y + 3, height)):
+                                if genome[check_y][x] in ["X", "B", "?", "M"]:
+                                    has_ground_nearby = True
+                                    break
+                            if not has_ground_nearby:
+                                continue
+                        
+                        # 4. Don't create isolated single blocks (needs neighbors or ground below)
+                        if new_tile == "X":
+                            has_neighbor = False
+                            # Check if block has support below or neighbors
+                            if y + 1 < height and genome[y + 1][x] in ["X", "B", "?", "M"]:
+                                has_neighbor = True
+                            else:
+                                # Check horizontal neighbors
+                                for dx in [-1, 1]:
+                                    if 0 <= x + dx < width and genome[y][x + dx] == "X":
+                                        has_neighbor = True
+                                        break
+                            
+                            if not has_neighbor and random.random() > 0.3:  # 70% chance skip isolated blocks
+                                continue
+                        
+                        genome[y][x] = new_tile
+        
+        # REPAIR PIPES after mutation
+        for x in range(1, width - 1):
+            has_pipe_top = False
+            pipe_start_y = -1
+            for y in range(height - 1):
+                if genome[y][x] == "T":
+                    has_pipe_top = True
+                    pipe_start_y = y
+                    # Complete pipe to ground
+                    for py in range(y + 1, 15):
+                        genome[py][x] = "|"
+                    break
+        
+        # ENSURE PLATFORMS ARE SPACED PROPERLY
+        # Remove platforms that are too far from other reachable surfaces
+        for y in range(8, 14):
+            for x in range(1, width - 1):
+                if genome[y][x] == "X":
+                    # Check if this platform is reachable
+                    is_reachable = False
+                    
+                    # Check if connected to ground or tall structure
+                    if y >= 10:  # Close to ground
+                        is_reachable = True
+                    else:
+                        # Check for nearby platforms/ground within jump range
+                        for dx in range(-5, 6):
+                            for dy in range(-4, 5):
+                                check_x = x + dx
+                                check_y = y + dy
+                                if 0 <= check_x < width and 0 <= check_y < height:
+                                    if check_y > y and genome[check_y][check_x] == "X":
+                                        # Found lower platform within reach
+                                        is_reachable = True
+                                        break
+                                    elif check_y >= 14:  # Ground level
+                                        is_reachable = True
+                                        break
+                            if is_reachable:
+                                break
+                    
+                    # Remove isolated platforms (with small probability to keep some challenge)
+                    if not is_reachable and random.random() > 0.2:
+                        genome[y][x] = "-"
 
     # Create zero or more children from self and other
     def generate_children(self, other):
         new_genome = copy.deepcopy(self.genome)
-        # Leaving first and last columns alone...
-        # do crossover with other
         left = 1
         right = width - 1
         
-        # Keep section-based crossover
         sections = 4
         section_width = (width - 2) // sections
         
@@ -263,14 +362,25 @@ class Individual_Grid(object):
             start_x = 1 + section * section_width
             end_x = min(start_x + section_width, width - 2)
             
-            if random.random() < 0.5:  # 50% chance to take from other parent for this section
-                for y in range(height - 1):  # Skip floor
+            if random.random() < 0.5:
+                for y in range(height - 1):
                     for x in range(start_x, end_x):
-                        # STUDENT Which one should you take?  Self, or other?  Why?
-                        # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
                         new_genome[y][x] = other.genome[y][x]
         
-        # do mutation; note we're returning a one-element tuple here
+        # REPAIR BROKEN PIPES after crossover
+        for x in range(1, width - 1):
+            for y in range(height - 1):
+                if new_genome[y][x] == "T":  # Found pipe top
+                    # Ensure pipe body extends to ground
+                    pipe_y = y + 1
+                    while pipe_y < 15:
+                        if new_genome[pipe_y][x] not in ["|", "T"]:
+                            new_genome[pipe_y][x] = "|"
+                        pipe_y += 1
+                elif new_genome[y][x] == "|" and y > 0 and new_genome[y-1][x] not in ["|", "T"]:
+                    # Orphaned pipe segment
+                    new_genome[y-1][x] = "T"
+        
         self.mutate(new_genome)
         return (Individual_Grid(new_genome),)
 
@@ -324,18 +434,30 @@ class Individual_Grid(object):
             section_type = random.choice(["platforms", "pipes", "coins", "enemies", "mixed"])
             
             if section_type == "platforms":
-                # Create floating platforms
                 num_platforms = random.randint(1, 3)
+                last_platform_y = 14  # Start from ground level
+                last_platform_x = start_x
+                
                 for _ in range(num_platforms):
-                    plat_x = random.randint(start_x, end_x - 4)
-                    plat_y = random.randint(10, 13)
+                    # Constrain horizontal distance (max 5 blocks jump)
+                    plat_x = random.randint(max(start_x, last_platform_x + 2), 
+                                          min(end_x - 4, last_platform_x + 6))
+                    
+                    # Constrain vertical distance (max 4 blocks jump height)
+                    max_jump = 4
+                    plat_y = random.randint(max(10, last_platform_y - max_jump), 
+                                        min(13, last_platform_y + 2))
+                    
                     plat_width = random.randint(3, 6)
-                    plat_height = random.randint(0, 2)  # Multi-level platforms
+                    plat_height = random.randint(0, 1)  # Reduced height for cleaner platforms
                     
                     for y_offset in range(plat_height + 1):
                         for x_offset in range(plat_width):
                             if 0 <= plat_y - y_offset < height and 0 <= plat_x + x_offset < width:
                                 g[plat_y - y_offset][plat_x + x_offset] = "X"
+                    
+                    last_platform_y = plat_y
+                    last_platform_x = plat_x + plat_width - 1  # End of platform
             
             elif section_type == "pipes":
                 # Create pipes (ALWAYS ON GROUND - row 14 is ground level, row 15 is solid floor)
@@ -352,13 +474,19 @@ class Individual_Grid(object):
                     # Pipe body
                     for h in range(1, pipe_height):
                         g[15 - pipe_height + h][pipe_x] = "|"
-                    # Pipe base is already on ground (row 15 has "X")
+                    
+                    pipe_height = random.randint(2, 5)  # Increase max from 4 to 5 for variety
+
+                    # Clear any blocks above the pipe
+                    for clear_y in range(max(0, 15 - pipe_height - 2), 15 - pipe_height):
+                        if g[clear_y][pipe_x] in ["X", "B", "?"]:
+                            g[clear_y][pipe_x] = "-"
             
             elif section_type == "coins":
                 # Create coin patterns
                 pattern = random.choice(["line", "arc", "block", "scatter", "staircase"])
                 coin_x = random.randint(start_x, end_x - 5)
-                coin_y = random.randint(10, 13)
+                coin_y = random.randint(11, 14)  # Lowered from (10, 13) for easier reach
                 
                 if pattern == "line":
                     for i in range(5):
@@ -377,7 +505,7 @@ class Individual_Grid(object):
                     # Random scatter of coins in the section
                     for _ in range(random.randint(3, 8)):
                         scatter_x = random.randint(start_x, end_x - 1)
-                        scatter_y = random.randint(8, 13)
+                        scatter_y = random.randint(10, 14)  # Already good range
                         if g[scatter_y][scatter_x] == "-":
                             g[scatter_y][scatter_x] = "o"
                 elif pattern == "staircase":
@@ -425,7 +553,7 @@ class Individual_Grid(object):
                 num_qblocks = random.randint(1, 3)
                 for _ in range(num_qblocks):
                     qblock_x = random.randint(start_x, end_x - 2)
-                    qblock_y = random.randint(10, 12)
+                    qblock_y = random.randint(11, 13)  # Lowered from (9, 11) for easier reach
                     if g[qblock_y][qblock_x] == "-":
                         g[qblock_y][qblock_x] = "?" if random.random() < 0.7 else "M"
                 
@@ -440,7 +568,7 @@ class Individual_Grid(object):
                 # Maybe add some coins too
                 if random.random() < 0.5:
                     coin_x = random.randint(start_x, end_x - 3)
-                    coin_y = random.randint(10, 12)
+                    coin_y = random.randint(11, 13)
                     for i in range(3):
                         if g[coin_y][coin_x + i] == "-":
                             g[coin_y][coin_x + i] = "o"
@@ -709,7 +837,7 @@ class Individual_DE(object):
                 w = random.randint(1, 8)
                 g.append((x, element_type, w))
             elif element_type == "1_platform":
-                w = random.randint(1, 8)
+                w = random.randint(1, 6)
                 y = random.randint(0, height - 3)  # Keep platform above ground
                 madeof = random.choice(["?", "X", "B"])
                 g.append((x, element_type, w, y, madeof))
@@ -737,7 +865,7 @@ class Individual_DE(object):
         return Individual_DE(g)
 
 
-Individual = Individual_DE
+Individual = Individual_Grid
 
 
 def _select_parent(population, strategy=SELECTION_STRATEGY):
@@ -790,12 +918,10 @@ def generate_successors(population):
 
 def ga():
     # STUDENT Feel free to play with this parameter
-    pop_limit = 480
+    pop_limit = 240  # Reduced from 480 for faster runs
     
     # Code to parallelize some computations
     batches = os.cpu_count()
-    if pop_limit % batches != 0:
-        print("It's ideal if pop_limit divides evenly into " + str(batches) + " batches.")
     batch_size = int(math.ceil(pop_limit / batches))
     
     try:
@@ -815,6 +941,8 @@ def ga():
             
             print(f"Successfully created {len(population)} individuals")
             print("Calculating initial fitnesses...")
+            print(f"This will process {len(population)} individuals in batches of {batch_size}...")
+            sys.stdout.flush()
             
             population = pool.map(Individual.calculate_fitness,
                                   population,
@@ -843,6 +971,7 @@ def ga():
                     print("Max fitness:", str(best.fitness()))
                     print("Average generation time:", (now - start) / generation)
                     print("Net time:", now - start)
+                    sys.stdout.flush()
                     with open("levels/last.txt", 'w') as f:
                         for row in best.to_level():
                             f.write("".join(row) + "\n")
@@ -884,12 +1013,14 @@ def ga():
                 next_population = generate_successors(population)
                 gendone = time.time()
                 print("Generated successors in:", gendone - gentime, "seconds")
+                sys.stdout.flush()
                 # Calculate fitness in batches in parallel
                 next_population = pool.map(Individual.calculate_fitness,
                                            next_population,
                                            batch_size)
                 popdone = time.time()
                 print("Calculated fitnesses in:", popdone - gendone, "seconds")
+                sys.stdout.flush()
                 population = next_population
                 
     except KeyboardInterrupt:
