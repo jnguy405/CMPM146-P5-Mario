@@ -19,7 +19,7 @@ MonoBehaviour:
     width: 1706.6667
     height: 976
   m_ShowMode: 4
-  m_Title: Game
+  m_Title: Scene
   m_RootView: {fileID: 2}
   m_MinSize: {x: 875, y: 300}
   m_MaxSize: {x: 10000, y: 10000}
@@ -119,7 +119,7 @@ MonoBehaviour:
   m_MinSize: {x: 300, y: 112}
   m_MaxSize: {x: 24288, y: 16192}
   vertical: 0
-  controlID: 111
+  controlID: 113
   draggingID: 0
 --- !u!114 &6
 MonoBehaviour:
@@ -301,7 +301,7 @@ MonoBehaviour:
   m_Pos:
     serializedVersion: 2
     x: 0
-    y: 0
+    y: 42.666668
     width: 1706.6666
     height: 36
   m_SerializedDataModeController:
@@ -581,8 +581,8 @@ MonoBehaviour:
     m_TextWithWhitespace: "Game\u200B"
   m_Pos:
     serializedVersion: 2
-    x: 271
-    y: 24
+    x: 270
+    y: 78.66667
     width: 1079.3334
     height: 548.6667
   m_SerializedDataModeController:
@@ -686,7 +686,7 @@ MonoBehaviour:
   m_Pos:
     serializedVersion: 2
     x: 0
-    y: 24
+    y: 78.66667
     width: 269
     height: 548.6667
   m_SerializedDataModeController:
@@ -709,7 +709,7 @@ MonoBehaviour:
       m_LastClickedID:
         m_Data: 0
       m_ExpandedIDs:
-      - m_Data: -21078
+      - m_Data: -1292
       m_RenameOverlay:
         m_UserAcceptedRename: 0
         m_Name: 
@@ -1456,7 +1456,7 @@ MonoBehaviour:
   m_Pos:
     serializedVersion: 2
     x: 0
-    y: 598.6667
+    y: 653.3334
     width: 1350.3334
     height: 319.3333
   m_SerializedDataModeController:
@@ -1483,7 +1483,7 @@ MonoBehaviour:
     m_SkipHidden: 0
     m_SearchArea: 1
     m_Folders:
-    - Assets/Resources/Levels
+    - Assets/Resources/Prefab
     m_Globs: []
     m_ProductIds: 
     m_AnyWithAssetOrigin: 0
@@ -1493,7 +1493,7 @@ MonoBehaviour:
   m_ViewMode: 1
   m_StartGridSize: 85
   m_LastFolders:
-  - Assets/Resources/Levels
+  - Assets/Resources/Prefab
   m_LastFoldersGridSize: 85
   m_LastProjectPath: C:\Users\jleeu\Downloads\UCSC\Winter 2026\CMPM146\CMPM146-P5-Mario\src\Player
   m_LockTracker:
@@ -1502,14 +1502,15 @@ MonoBehaviour:
   m_FolderTreeState:
     scrollPos: {x: 0, y: 8.666687}
     m_SelectedIDs:
-    - m_Data: 35606
+    - m_Data: 32130
     m_LastClickedID:
-      m_Data: 35606
+      m_Data: 32130
     m_ExpandedIDs:
     - m_Data: 0
-    - m_Data: 31972
-    - m_Data: 31974
-    - m_Data: 31976
+    - m_Data: 31982
+    - m_Data: 31984
+    - m_Data: 31986
+    - m_Data: 1000000000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -1542,9 +1543,9 @@ MonoBehaviour:
       m_Data: 0
     m_ExpandedIDs:
     - m_Data: 0
-    - m_Data: 31972
-    - m_Data: 31974
-    - m_Data: 31976
+    - m_Data: 31982
+    - m_Data: 31984
+    - m_Data: 31986
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -1571,9 +1572,8 @@ MonoBehaviour:
       m_Icon: {fileID: 0}
       m_ResourceFile: 
   m_ListAreaState:
-    m_SelectedInstanceIDs:
-    - m_Data: 35568
-    m_LastClickedInstanceID: 35568
+    m_SelectedInstanceIDs: []
+    m_LastClickedInstanceID: 0
     m_HadKeyboardFocusLastEvent: 0
     m_ExpandedInstanceIDs: []
     m_RenameOverlay:
@@ -1601,7 +1601,7 @@ MonoBehaviour:
       m_Icon: {fileID: 0}
       m_ResourceFile: 
     m_NewAssetIndexInList: -1
-    m_ScrollPosition: {x: 0, y: 0}
+    m_ScrollPosition: {x: 0, y: 90.66669}
     m_GridSize: 85
   m_SkipHiddenPackages: 0
   m_DirectoriesAreaWidth: 207
@@ -1666,8 +1666,8 @@ MonoBehaviour:
     m_TextWithWhitespace: "Inspector\u200B"
   m_Pos:
     serializedVersion: 2
-    x: 1352.3334
-    y: 24
+    x: 1351.3334
+    y: 78.66667
     width: 354.33325
     height: 894
   m_SerializedDataModeController:

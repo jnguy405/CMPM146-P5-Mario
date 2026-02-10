@@ -9,54 +9,6 @@ import time
 import math
 import sys
 
-# =============================================================================
-# CORE IMPLEMENTATION ADDITIONS (P5 Mario)
-# =============================================================================
-#   1. Config + mutation weights
-#   2. Individual_Grid.calculate_fitness()
-#   3. Individual_Grid.mutate() + Individual_Grid.random_individual()
-#   4. Individual_Grid.generate_children() + _select_parent() + generate_successors()
-#
-# Citations:
-# - Fitness function metrics inspired by various Mario level generation papers and the provided metrics.py.
-# - Mutation and random generation ideas inspired by common Mario level design patterns and structures.
-# - Some comments generated with Co-Pilot to explain the rationale behind design choices.
-# =============================================================================
-# Locations and behavior:
-#
-# 1. Config + Mutation Weights
-#    - Added GA configuration constants (MUTATION_RATE_GENE, ELITE_COUNT, etc.)
-#      and weighted tile list for mutation.
-#    - Why: Centralized configuration allows easy tuning. Weighted tiles favor
-#      empty space and coins over pipes/enemies, producing more playable levels
-#      by default.
-#
-# 2. Individual_Grid.calculate_fitness()
-#    - Enhanced fitness function with playability metrics: path continuity,
-#      enemy placement checks, coin clustering, and penalties for bad design
-#      (floating pipes, unreachable items, too many enemies).
-#    - Why: Original fitness was arbitrary. New metrics makes sure levels have
-#      continuous paths, properly placed enemies, and logical item placement
-#      while penalizing common level design flaws.
-#
-# 3. Individual_Grid.mutate() + Individual_Grid.random_individual()
-#    - mutate(): Per-gene mutation using weighted tiles, skipping floor/border.
-#    - random_individual(): Structured level generation with sections (platforms,
-#      pipes, coins, enemies, mixed) and strict pipe placement on ground.
-#    - Why: Mutation explores while maintaining structure. Random generation
-#      creates Mario-like levels with coherent sections instead of random noise.
-#      Pipes are strictly placed on ground to prevent floating pipes.
-#
-# 4. Individual_Grid.generate_children() + _select_parent() + generate_successors()
-#    - generate_children(): Section-based crossover (4 sections with 50% chance
-#      to take from other parent per section).
-#    - _select_parent(): Tournament selection (default), roulette, or random.
-#    - generate_successors(): Elitism (top ELITE_COUNT) + offspring generation.
-#    - Why: Section crossover preserves large structural elements. Tournament
-#      selection balances exploration/exploitation. Elitism preserves best
-#      solutions while generating diverse offspring.
-# =============================================================================
-
 width = 200
 height = 16
 
@@ -77,9 +29,9 @@ options = [
 
 # Tile weights for mutation (higher = more likely). Gives more empty/coins, fewer pipes/enemies.
 _mutation_tile_weights = [
-    ("-", 7),    # Empty space
+    ("-", 5),    # Empty space
     ("X", 6),    # Solid blocks (common)
-    ("?", 3),    # Question blocks
+    ("?", 4),    # Question blocks
     ("M", 1),    # Mushroom blocks (rare)
     ("B", 4),    # Breakable blocks
     ("o", 5),    # Coins
@@ -201,8 +153,8 @@ class Individual_Grid(object):
         # Only strict penalty: Bad pipe placement
         fitness -= pipe_penalty * 1.0
         
-        # Penalties (keep them light)
-        # Too many enemies (but be generous)
+        # Penalties
+        # Too many enemies
         if enemy_count > 15:
             fitness -= (enemy_count - 15) * 0.2
         
@@ -211,7 +163,7 @@ class Individual_Grid(object):
         if pipe_count > 8:
             fitness -= (pipe_count - 8) * 0.2
         
-        # Reward for having enemies and coins (encourage them!)
+        # Reward for having enemies and coins
         if enemy_count > 0:
             fitness += min(enemy_count, 10) * 0.1
         
@@ -486,7 +438,7 @@ class Individual_Grid(object):
                 # Create coin patterns
                 pattern = random.choice(["line", "arc", "block", "scatter", "staircase"])
                 coin_x = random.randint(start_x, end_x - 5)
-                coin_y = random.randint(11, 14)  # Lowered from (10, 13) for easier reach
+                coin_y = random.randint(11, 12)
                 
                 if pattern == "line":
                     for i in range(5):
@@ -531,7 +483,7 @@ class Individual_Grid(object):
                         # Enemy on existing platform or new small platform
                         # Check if there's already a platform
                         placed = False
-                        for y in range(11, 14):
+                        for y in range(10, 12):
                             if g[y][enemy_x] == "X":
                                 g[y-1][enemy_x] = "E"
                                 placed = True
@@ -561,14 +513,14 @@ class Individual_Grid(object):
                 num_breakable = random.randint(1, 3)
                 for _ in range(num_breakable):
                     block_x = random.randint(start_x, end_x - 1)
-                    block_y = random.randint(10, 12)
+                    block_y = random.randint(9, 11)
                     if g[block_y][block_x] == "-":
                         g[block_y][block_x] = "B"
                 
                 # Maybe add some coins too
                 if random.random() < 0.5:
                     coin_x = random.randint(start_x, end_x - 3)
-                    coin_y = random.randint(10, 13)
+                    coin_y = random.randint(10, 12)
                     for i in range(3):
                         if g[coin_y][coin_x + i] == "-":
                             g[coin_y][coin_x + i] = "o"
@@ -614,10 +566,10 @@ class Individual_DE(object):
         # STUDENT Improve this with any code you like
         coefficients = dict(
             meaningfulJumpVariance=0.5,
-            negativeSpace=0.6,
+            negativeSpace=0.3,
             pathPercentage=0.8,
             emptyPercentage=0.6,
-            linearity=-0.5,
+            linearity=-0.8,
             solvability=2.0
         )
         
@@ -824,44 +776,16 @@ class Individual_DE(object):
     def random_individual(_cls):
         # STUDENT Maybe enhance this
         elt_count = random.randint(8, 128)
-        g = []
-        for i in range(elt_count):
-            x = random.randint(1, width - 2)  # Avoid edges
-            
-            element_type = random.choice([
-                "0_hole", "1_platform", "2_enemy", "3_coin", 
-                "4_block", "5_qblock", "6_stairs", "7_pipe"
-            ])
-            
-            if element_type == "0_hole":
-                w = random.randint(1, 8)
-                g.append((x, element_type, w))
-            elif element_type == "1_platform":
-                w = random.randint(1, 6)
-                y = random.randint(0, height - 3)  # Keep platform above ground
-                madeof = random.choice(["?", "X", "B"])
-                g.append((x, element_type, w, y, madeof))
-            elif element_type == "2_enemy":
-                g.append((x, element_type))
-            elif element_type == "3_coin":
-                y = random.randint(0, height - 2)  # Keep coin above ground
-                g.append((x, element_type, y))
-            elif element_type == "4_block":
-                y = random.randint(0, height - 2)  # Keep block above ground
-                breakable = random.choice([True, False])
-                g.append((x, element_type, y, breakable))
-            elif element_type == "5_qblock":
-                y = random.randint(0, height - 2)  # Keep qblock above ground
-                has_powerup = random.choice([True, False])
-                g.append((x, element_type, y, has_powerup))
-            elif element_type == "6_stairs":
-                h = random.randint(1, min(8, height - 4))  # Keep stairs reasonable height
-                dx = random.choice([-1, 1])
-                g.append((x, element_type, h, dx))
-            elif element_type == "7_pipe":
-                h = random.randint(2, height - 4)  # Ensure pipe fits within bounds
-                g.append((x, element_type, h))
-        
+        g = [random.choice([
+            (random.randint(1, width - 2), "0_hole", random.randint(1, 8)),
+            (random.randint(1, width - 2), "1_platform", random.randint(1, 8), random.randint(0, height - 1), random.choice(["?", "X", "B"])),
+            (random.randint(1, width - 2), "2_enemy"),
+            (random.randint(1, width - 2), "3_coin", random.randint(0, height - 1)),
+            (random.randint(1, width - 2), "4_block", random.randint(0, height - 3), random.choice([True, False])),
+            (random.randint(1, width - 2), "5_qblock", random.randint(0, height - 3), random.choice([True, False])),
+            (random.randint(1, width - 2), "6_stairs", random.randint(1, height - 6), random.choice([-1, 1])),
+            (random.randint(1, width - 2), "7_pipe", random.randint(2, height - 4))
+        ]) for i in range(elt_count)]
         return Individual_DE(g)
 
 
