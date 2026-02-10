@@ -1,3 +1,9 @@
+# Jenalee Nguyen
+# ga.py
+# CMPM146 Project 5: Mario Level Generation
+# Professor Daniel Shapiro
+# Citations: Sorenson & Pasquier Paper and Co-Pilot for in-line comments.
+
 import copy
 import heapq
 import metrics
@@ -133,11 +139,11 @@ class Individual_Grid(object):
         # Metrics
         coefficients = dict(
             meaningfulJumpVariance=0.5,
-            negativeSpace=0.6,  # More tolerant of empty space
+            negativeSpace=0.6,
             pathPercentage=1.0,  
             emptyPercentage=0.6,
             linearity=0.3,
-            solvability=2.0,  # Still important but not overriding
+            solvability=2.0,
         )
         
         # Calculate weighted sum
@@ -148,7 +154,7 @@ class Individual_Grid(object):
         
         # Metric contributions
         fitness += enemy_placement * 1.0
-        fitness += coin_clustering * 1.0  # More reward for coin clusters
+        fitness += coin_clustering * 1.0 
         
         # Only strict penalty: Bad pipe placement
         fitness -= pipe_penalty * 1.0
@@ -269,7 +275,7 @@ class Individual_Grid(object):
                         genome[py][x] = "|"
                     break
         
-        # ENSURE PLATFORMS ARE SPACED PROPERLY
+        # PLATFORMS ARE SPACED PROPERLY
         # Remove platforms that are too far from other reachable surfaces
         for y in range(8, 14):
             for x in range(1, width - 1):
@@ -573,6 +579,8 @@ class Individual_DE(object):
             solvability=2.0
         )
         
+        # Improvement: Add custom metrics for design element placement quality
+
         # Calculate base fitness first
         fitness = sum(map(lambda m: coefficients[m] * measurements[m], coefficients))
         
@@ -617,6 +625,7 @@ class Individual_DE(object):
 
     def mutate(self, new_genome):
         # STUDENT How does this work?  Explain it in your writeup.
+        # Grabs a random design element and randomly mutates one of its parameters (type, position, etc) with some probability.
         # STUDENT consider putting more constraints on this, to prevent generating weird things
         if random.random() < 0.1 and len(new_genome) > 0:
             to_change = random.randint(0, len(new_genome) - 1)
@@ -698,6 +707,8 @@ class Individual_DE(object):
 
     def generate_children(self, other):
         # STUDENT How does this work?  Explain it in your writeup.
+
+        # Grabs a random crossover point in each parent and creates two children by swapping the tails of the genomes at those points.
         
         if len(self.genome) == 0:
             pa = 0
@@ -793,7 +804,6 @@ Individual = Individual_Grid
 
 
 def _select_parent(population, strategy=SELECTION_STRATEGY):
-    """Select one individual: roulette (fitness-proportionate), tournament (best of K), or random."""
     if not population or len(population) == 0:
         return None
     if strategy == "random":
